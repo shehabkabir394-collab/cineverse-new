@@ -3754,7 +3754,7 @@ async function startServer() {
         if (fbMovie.sources.length) sources = fbMovie.sources;
       }
       if (!sources.length) {
-        res.status(404).send('No full stream found for this episode');
+        res.status(404).type('text/plain').send('No full stream found for this episode');
         return;
       }
       const chosen =

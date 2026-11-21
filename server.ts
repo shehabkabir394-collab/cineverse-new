@@ -53,13 +53,13 @@ interface MirrorNodeConfig {
 
 const SERVER_NODES: MirrorNodeConfig[] = [
   { id: 'node-moviebox', name: 'HD Server 1', region: 'Bangladesh / Global HD Hub', origin: 'https://moviebox01.com' },
-  { id: 'node-alpha', name: 'Node Alpha', region: 'BD-Fast Edge', origin: 'https://wvaedp.movielinkbd.at' },
+  { id: 'node-alpha', name: 'Node Alpha', region: 'BD-Fast Edge', origin: 'https://h5esed.movielinkbd.at' },
   { id: 'node-beta', name: 'Node Beta', region: 'Auto-Redirect Core', origin: 'https://movielinkbd.at' },
   { id: 'node-gamma', name: 'Node Gamma', region: 'Official Portal', origin: 'https://movielinkbd.com' },
   { id: 'node-delta', name: 'Node Delta', region: 'Backup Mirror', origin: 'https://cmyyhb.movielinkbd.at' },
 ];
 
-let latestMlbdOrigin = 'https://wvaedp.movielinkbd.at';
+let latestMlbdOrigin = 'https://h5esed.movielinkbd.at';
 
 const PRIMARY_MIRROR_NODES = SERVER_NODES.filter((n) => n.id !== 'node-moviebox');
 const MOVIEBOX_ORIGIN = 'https://moviebox01.com';
@@ -369,6 +369,8 @@ function sortSourcesFastestFirst(sources?: StreamSource[]): StreamSource[] {
       src.type === 'embed' ||
       /abyssplayer\.com|abysscdn\.com|vidsrc|multiembed|autoembed|myflix/i.test(`${src.url || ''} ${src.id || ''}`);
     if (isEmbed) return 400;
+    if (/^mlbd-pd2-mp4-/i.test(src.id || '')) return 6500 + (src.quality || 0);
+    if (/^mlbd-pd2-hls-/i.test(src.id || '')) return 900 + (src.quality || 0);
     const isMovieBox =
       src.id?.startsWith('mb-') || /\/api\/mb-stream|\/api\/mb-ep-stream/i.test(src.url || '');
     if (isMovieBox) {
@@ -559,6 +561,21 @@ function sanitizeBrandText(input: string): string {
     .replace(/\s+[–—-]\s*$/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+function normalizeMlbdCdnUrl(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (/^(?:www\.)?fsldownload\.com$/i.test(parsed.hostname)) {
+      parsed.hostname = 'fsl.movielink.tv';
+      parsed.protocol = 'https:';
+    }
+    return parsed.toString();
+  } catch {
+    return raw.replace(/^https?:\/\/(?:www\.)?fsldownload\.com/i, 'https://fsl.movielink.tv');
+  }
 }
 
 function decodeMlbdCipher(base64Str: string, hexSeed: string, rounds: number): string {
@@ -946,13 +963,13 @@ function parseMovieDetail(html: string, itemPath: string, origin: string): Movie
       ? ep.sources
           .filter((s: any) => s && (s.url || s.download_url))
           .map((s: any, sIdx: number) => {
-            const rawUrl = String(s.url || '');
+            const rawUrl = normalizeMlbdCdnUrl(String(s.url || ''));
             const rawStreamUrl = rawUrl.startsWith('http')
               ? rawUrl
               : rawUrl
                 ? `${origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`
                 : '';
-            const rawDlUrl = String(s.download_url || s.url || '');
+            const rawDlUrl = normalizeMlbdCdnUrl(String(s.download_url || s.url || ''));
             const fullDlUrl = rawDlUrl.startsWith('http')
               ? rawDlUrl
               : rawDlUrl
@@ -1085,8 +1102,6 @@ async function enrichMovieLinkBdWithPd2Player(
   origin: string,
   detail: MovieDetailData
 ): Promise<MovieDetailData> {
-  if (detail.episodes && detail.episodes.length > 0) return detail;
-
   const iframeMatch =
     html.match(/<iframe[^>]*id=["']mlbdHdFrame["'][^>]*src=["']([^"']+)["']/i) ||
     html.match(/<iframe[^>]*src=["']([^"']+)["'][^>]*id=["']mlbdHdFrame["']/i) ||
@@ -1165,7 +1180,7 @@ async function enrichMovieLinkBdWithPd2Player(
           : [pdLang];
 
       const sources: StreamSource[] = [];
-      const epMp4 = String(ep.mp4 || '').trim();
+      const epMp4 = normalizeMlbdCdnUrl(String(ep.mp4 || '').trim());
       const epMaster = String(ep.master || '').trim();
       const fallbackDl = detail.downloadButtons[0]?.url || '';
 
@@ -3777,7 +3792,7 @@ async function startServer() {
       });
 
       if (!upstream.ok) {
-        res.status(upstream.status).send(`Upstream HLS returned ${upstream.status}`);
+        res.status(upstream.status).type('text/plain').send(`Upstream HLS returned ${upstream.status}`);
         return;
       }
 
@@ -3885,15 +3900,17 @@ async function startServer() {
       });
 
       if (!upstream.ok && upstream.status !== 206) {
-        res.status(upstream.status).send(`Upstream stream returned ${upstream.status}`);
+        res.status(upstream.status).type('text/plain').send(`Upstream stream returned ${upstream.status}`);
         return;
       }
 
       const rawCt = upstream.headers.get('content-type') || '';
       const contentType = isHlsSeg
-        ? req.headers.range
-          ? 'video/mp4'
-          : 'video/mp2t'
+        ? /(?:video|application)\/(?:mp4|mp2t)/i.test(rawCt)
+          ? rawCt
+          : req.headers.range
+            ? 'video/mp4'
+            : 'video/mp2t'
         : rawCt && !/image|octet-stream/i.test(rawCt)
           ? rawCt
           : 'video/mp4';

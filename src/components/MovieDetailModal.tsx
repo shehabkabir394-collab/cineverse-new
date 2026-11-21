@@ -493,6 +493,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
   const iosControllerRef = useRef<IosMkvStreamController | null>(null);
   const iosTransitioningRef = useRef<boolean>(false);
   const hlsInstanceRef = useRef<Hls | null>(null);
+  const handleVideoErrorRef = useRef<(() => void) | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
@@ -1509,7 +1510,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
 
   const isHlsJsUrl = useMemo(() => {
     if (!effectiveVideoUrl || isEmbedSource) return false;
-    if (!/\.m3u8(\?|$)/i.test(effectiveVideoUrl)) return false;
+    if (activeSource?.type !== 'hls' && !/\.m3u8(\?|$)/i.test(effectiveVideoUrl)) return false;
     if (typeof document === 'undefined') return false;
     const testVideo = document.createElement('video');
     return Hls.isSupported() && !testVideo.canPlayType('application/vnd.apple.mpegurl');
@@ -1637,7 +1638,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         hlsInstanceRef.current.destroy();
         hlsInstanceRef.current = null;
       }
-      const isM3u8 = /\.m3u8(\?|$)/i.test(effectiveVideoUrl);
+      const isM3u8 = activeSource?.type === 'hls' || /\.m3u8(\?|$)/i.test(effectiveVideoUrl);
       if (isM3u8 && Hls.isSupported() && !v.canPlayType('application/vnd.apple.mpegurl')) {
         const hls = new Hls({
           enableWorker: true,
@@ -1651,6 +1652,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
           fragLoadingTimeOut: 12000,
         });
         hlsInstanceRef.current = hls;
+        let fatalRecoveryAttempts = 0;
         hls.loadSource(effectiveVideoUrl);
         hls.attachMedia(v);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -1664,13 +1666,29 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
           });
         });
         hls.on(Hls.Events.ERROR, (_evt, data) => {
-          if (data?.fatal) {
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              hls.startLoad();
-            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              hls.recoverMediaError();
-            }
+          if (!data?.fatal) return;
+          const status = Number((data as any)?.response?.code || 0);
+          console.error('[CineVerse HLS fatal]', {
+            type: data.type,
+            details: data.details,
+            status,
+            response: (data as any)?.response,
+            activeUrl: effectiveVideoUrl,
+          });
+          if ([400, 403, 404, 416, 429].includes(status)) fatalRecoveryAttempts = 2;
+          if (fatalRecoveryAttempts < 2 && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            fatalRecoveryAttempts += 1;
+            hls.startLoad();
+            return;
           }
+          if (fatalRecoveryAttempts < 2 && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            fatalRecoveryAttempts += 1;
+            hls.recoverMediaError();
+            return;
+          }
+          hls.destroy();
+          if (hlsInstanceRef.current === hls) hlsInstanceRef.current = null;
+          handleVideoErrorRef.current?.();
         });
       } else {
         syncCleanAudioVolume(v);
@@ -2200,6 +2218,8 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     const failedUrl = failedSrc?.url || '';
     const getHostKey = (u: string) => {
       if (/\/api\/mb-stream|\/api\/mb-ep-stream/i.test(u)) return 'mb-proxy';
+      if (/\/api\/mlbd-hls/i.test(u)) return 'mlbd-hls-proxy';
+      if (/\/api\/mlbd-stream/i.test(u)) return 'mlbd-mp4-proxy';
       try {
         return new URL(u).hostname.toLowerCase();
       } catch {
@@ -2259,6 +2279,8 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     setIsBuffering(false);
     setVideoError(true);
   };
+
+  handleVideoErrorRef.current = handleVideoError;
 
   const handleTogglePlayPause = () => {
     const v = videoRef.current;

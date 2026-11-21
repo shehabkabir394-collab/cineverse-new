@@ -4519,6 +4519,33 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
            ===================================================================== */}
         {!isMiniPlayer && !isLandscapeMode && !isFullscreen && !isPortraitFullscreen && (
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain px-2.5 sm:px-6 pt-2 pb-28 space-y-5">
+            {/* Always-visible manual server selector below the player */}
+            {sources.length > 1 && (
+              <section className="rounded-xl border border-white/10 bg-white/[0.035] p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-white">ভিডিও না চললে অন্য সার্ভার বেছে নিন</span>
+                  <span className="text-[10px] text-gray-400">{sources.length}টি সার্ভার</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {sources.map((src, idx) => (
+                    <button
+                      key={src.id || idx}
+                      type="button"
+                      onClick={() => handleSelectSource(idx, true)}
+                      className={`min-h-9 rounded-lg border px-3 py-2 text-[11px] font-bold transition-colors cursor-pointer ${
+                        selectedSourceIdx === idx
+                          ? 'border-[#dc2626] bg-[#dc2626] text-white'
+                          : 'border-white/10 bg-white/[0.06] text-gray-200 hover:bg-white/[0.12]'
+                      }`}
+                    >
+                      {idx === 0 ? 'Server 1' : `Server ${idx + 1}`}
+                      {src.quality ? ` · ${src.quality}p` : ''}
+                      {selectedSourceIdx === idx ? ' ✓' : ''}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             {/* 1. Title + "Info >" + Single-Line Metadata + Horizontal Action Pills */}
             <section className="space-y-2.5">
               {/* Title + Inline "Info >" */}

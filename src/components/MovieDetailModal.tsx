@@ -3807,7 +3807,6 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                     key={activeSource.url}
                     src={activeSource.url}
                     title={effectiveDetail?.title || movie.title}
-                    sandbox="allow-scripts allow-same-origin allow-presentation"
                     referrerPolicy="no-referrer"
                     style={{ filter: `brightness(${brightness}%)` }}
                     className="w-full h-full border-0 bg-black"

@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "build:github": "node scripts/generate-static-db.mjs && vite build",
-    "generate-db": "node scripts/generate-static-db.mjs",
+    "build": "node scripts/patch-static-db.mjs && vite build",
+    "build:github": "node scripts/generate-static-db.mjs && node scripts/patch-static-db.mjs && vite build",
+    "generate-db": "node scripts/generate-static-db.mjs && node scripts/patch-static-db.mjs",
     "start": "node server.ts",
     "start:render": "tsx server.ts",
     "preview": "vite preview",

@@ -1,36 +1,24 @@
-interface Env {
-  BACKEND_ORIGIN?: string;
-}
-
-export async function onRequest(context: {
-  request: Request;
-  env: Env;
-}): Promise<Response> {
-  const origin = context.env.BACKEND_ORIGIN?.trim();
-  if (!origin) {
-    return Response.json({ ok: false, error: "Backend is not configured" }, { status: 503 });
-  }
-
-  let target: URL;
-  try {
-    target = new URL(new URL(context.request.url).search, origin);
-  } catch {
-    return Response.json({ ok: false, error: "Invalid BACKEND_ORIGIN" }, { status: 500 });
-  }
-
-  try {
-    const upstream = await fetch(target, {
-      method: context.request.method,
-      headers: context.request.headers,
-      body: ["GET", "HEAD"].includes(context.request.method) ? undefined : context.request.body,
-      redirect: "manual",
-    });
-    return new Response(upstream.body, {
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: upstream.headers,
-    });
-  } catch {
-    return Response.json({ ok: false, error: "Backend connection failed" }, { status: 502 });
-  }
+/**
+ * CineVerse Cloudflare Pages Free mode.
+ *
+ * There is no Express/FFmpeg origin on the Free static deployment.
+ * Returning a non-2xx response lets the browser client continue into its
+ * built-in static snapshot + direct mirror fallback engine.
+ */
+export async function onRequest(context: { request: Request }): Promise<Response> {
+  return Response.json(
+    {
+      ok: false,
+      mode: "static-free",
+      error: "Dynamic server API is not enabled on this Cloudflare Free deployment.",
+      fallback: "The client will use static-db.json and browser-side sources where available.",
+    },
+    {
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-CineVerse-Mode": "static-free",
+      },
+    }
+  );
 }

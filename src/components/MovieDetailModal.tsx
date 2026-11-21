@@ -1514,7 +1514,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     if (typeof document === 'undefined') return false;
     const testVideo = document.createElement('video');
     return Hls.isSupported() && !testVideo.canPlayType('application/vnd.apple.mpegurl');
-  }, [effectiveVideoUrl, isEmbedSource]);
+  }, [effectiveVideoUrl, activeSource?.type, isEmbedSource]);
 
   // OS Phone-Screen Picture-in-Picture (PiP) & MediaSession Integration when leaving browser/app
   useEffect(() => {
@@ -1658,6 +1658,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           syncCleanAudioVolume(v);
           v.play().catch((err: any) => {
+            console.warn('[CineVerse] HLS play() rejected', err?.name, err?.message);
             if (err && err.name === 'NotAllowedError') {
               v.muted = true;
               setIsMuted(true);
@@ -1695,6 +1696,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         const p = v.play();
         if (p !== undefined) {
           p.catch((err: any) => {
+            console.warn('[CineVerse] video play() rejected', err?.name, err?.message);
             if (err && err.name === 'NotAllowedError') {
               v.muted = true;
               setIsMuted(true);
@@ -2213,6 +2215,14 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
   };
 
   const handleVideoError = () => {
+    const mediaError = videoRef.current?.error;
+    console.error('[CineVerse] video playback error', {
+      code: mediaError?.code ?? null,
+      message: mediaError?.message || 'No MediaError detail available',
+      networkState: videoRef.current?.networkState,
+      readyState: videoRef.current?.readyState,
+      source: sources[selectedSourceIdx]?.url || '',
+    });
     const resumeAt = Math.max(currentTime, lastRecordedSecondRef.current);
     const failedSrc = sources[selectedSourceIdx];
     const failedUrl = failedSrc?.url || '';

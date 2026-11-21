@@ -218,12 +218,10 @@ export function resolveDirectDownloadUrl(rawUrl: string): string {
       const padded = base64 + '==='.slice((base64.length + 3) % 4);
       const decoded = decodeURIComponent(escape(window.atob(padded)));
       if (/fifadekho\.com/i.test(decoded)) {
-        const isGhPages =
-          typeof window !== 'undefined' && window.location.hostname.endsWith('github.io');
-        return isGhPages
-          ? `${decoded.replace(/\/+$/, '')}?view=links`
-          : rawUrl;
+        return `${decoded.replace(/\/+$/, '')}?view=links`;
       }
+      // Resolve gateway tokens in the browser so Cloudflare Pages does not
+      // need a Node/Express /api/go backend just to redirect downloads.
       return decoded;
     } catch {
       return rawUrl;

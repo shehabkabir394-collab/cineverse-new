@@ -4503,6 +4503,82 @@ async function startServer() {
     }
   });
 
+  // 8b. Secure server-side proxy for the optional CinePulse Unified Movie API.
+  // The provider key is read only from the backend environment and is never sent to the browser.
+  const cinePulseApiBase = String(process.env.CINEPULSE_API_BASE || 'https://okay-891h.onrender.com').replace(/\/+$/, '');
+  const cinePulseProxyCache = new Map<string, { expiresAt: number; body: string; status: number; contentType: string }>();
+  const cinePulseAllowedEndpoints = new Set([
+    'home', 'reels', 'categories', 'catalog', 'search', 'suggest', 'updates-24h',
+    'details', 'stream', 'captions', 'related', 'comments', 'staff',
+    'trending', 'ranking', 'hot-search', 'filter', 'filter-options',
+    'platform', 'upcoming', 'sports/matches', 'sports/leagues',
+    'bottom-tabs', 'app-info', 'status',
+  ]);
+  const cinePulseCacheTtl = (endpoint: string) => {
+    if (['home', 'categories', 'trending', 'ranking', 'hot-search', 'updates-24h', 'filter-options', 'bottom-tabs', 'app-info', 'status'].includes(endpoint)) return 20_000;
+    if (['details', 'related', 'staff', 'comments'].includes(endpoint)) return 60_000;
+    if (endpoint === 'catalog' || endpoint === 'search' || endpoint === 'suggest' || endpoint === 'filter' || endpoint === 'platform' || endpoint === 'upcoming') return 15_000;
+    return 0; // Never cache stream URLs or subtitle requests.
+  };
+
+  app.get('/api/cinepulse/*', async (req, res) => {
+    const apiKey = String(process.env.CINEPULSE_API_KEY || '').trim();
+    if (!apiKey) {
+      res.status(503).json({ ok: false, error: 'CinePulse API is not configured on the backend.' });
+      return;
+    }
+
+    const endpoint = String(req.params[0] || '').replace(/^\/+|\/+$/g, '');
+    if (!cinePulseAllowedEndpoints.has(endpoint)) {
+      res.status(404).json({ ok: false, error: 'Unsupported CinePulse API endpoint.' });
+      return;
+    }
+
+    const upstreamUrl = new URL('/api/v1/' + endpoint, cinePulseApiBase);
+    for (const [key, value] of Object.entries(req.query)) {
+      if (key === 'apiKey' || key === 'api_key' || key === 'key') continue;
+      if (Array.isArray(value)) {
+        for (const entry of value) upstreamUrl.searchParams.append(key, String(entry));
+      } else if (value !== undefined) {
+        upstreamUrl.searchParams.set(key, String(value));
+      }
+    }
+
+    const cacheTtl = cinePulseCacheTtl(endpoint);
+    const cacheKey = endpoint + '?' + upstreamUrl.searchParams.toString();
+    const cached = cacheTtl > 0 ? cinePulseProxyCache.get(cacheKey) : null;
+    if (cached && cached.expiresAt > Date.now()) {
+      res.status(cached.status).type(cached.contentType).send(cached.body);
+      return;
+    }
+
+    try {
+      const upstream = await fetch(upstreamUrl, {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          Accept: 'application/json',
+          'User-Agent': 'CineVerse-Backend/1.0',
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await upstream.text();
+      const contentType = upstream.headers.get('content-type') || 'application/json';
+      if (cacheTtl > 0 && upstream.ok && body.length < 2_000_000) {
+        cinePulseProxyCache.set(cacheKey, {
+          expiresAt: Date.now() + cacheTtl,
+          body,
+          status: upstream.status,
+          contentType,
+        });
+      }
+      res.status(upstream.status).type(contentType).send(body);
+    } catch (error: any) {
+      console.error('[CinePulse API proxy]', endpoint, error?.message || error);
+      res.status(502).json({ ok: false, error: 'CinePulse API upstream is unavailable.' });
+    }
+  });
+
   // 9. Unified Public & Real-Time Auto-Sync API (/api/v1/*)
   app.get('/api/v1/feed', (req, res) => {
     const category = String(req.query.category || '/').trim();
